@@ -1,4 +1,4 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#2563eb"></head><body><title>動画モザイク スマホ版</title>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="theme-color" content="#2563eb"></head><body><title>動画モザイク スマホ版</title>
 <style>
 :root{--bg:#f6f7f9;--fg:#1c1f24;--card:#ffffff;--line:#d9dde3;--accent:#2563eb;--accent-fg:#ffffff;--muted:#5b6472;--bad:#e11d48;--shade:rgba(0,0,0,.45)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161a;--fg:#e8eaed;--card:#1e2126;--line:#33373e;--accent:#6b97f5;--accent-fg:#0b1020;--muted:#a0a7b2;--bad:#ff5c7c;color-scheme:dark}}
@@ -63,9 +63,17 @@ small,.muted{color:var(--muted)}
 .sw{width:32px;height:32px;border-radius:7px;border:2px solid var(--line);cursor:pointer;flex:0 0 auto}
 .edits div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:2px 0;font-size:13px}
 .edits button{min-height:32px;padding:2px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.stage{position:relative;touch-action:none}
+.stage canvas{transform-origin:50% 50%}
+.zoomctl{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px;z-index:2}
+.zoomctl button{width:38px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,.4);background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 </style>
 <div class="app">
-  <div class="stage"><canvas id="cv" width="360" height="640"></canvas></div>
+  <div class="stage"><canvas id="cv" width="360" height="640"></canvas><div class="zoomctl">
+      <button id="zoomIn" aria-label="拡大"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="zoomOut" aria-label="縮小"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+      <button id="zoomReset" aria-label="拡大をもとに戻す"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div></div>
   <video id="v" playsinline muted></video>
   <input type="file" id="file" accept="video/*" class="vh">
 
@@ -172,6 +180,31 @@ small,.muted{color:var(--muted)}
   </div>
 </div>
 
+<script>
+// 診断: 動かないときに、原因が画面に出るようにする
+(function () {
+  const st = () => document.getElementById('status');
+  const show = m => {
+    let t = String(m || '不明なエラー');
+    if (/cocoSsd|\btf\b|tensorflow/i.test(t)) t = 'ライブラリを読み込めませんでした。通信状況を確認して、ページを再読み込みしてください。(' + t + ')';
+    const s = st(); if (s) s.textContent = 'エラー: ' + t;
+  };
+  window.addEventListener('error', e => show(e && e.message));
+  window.addEventListener('unhandledrejection', e => show(e && e.reason && (e.reason.message || e.reason)));
+  // モデルの読み込みが遅いとき
+  setTimeout(() => { const s = st(); if (s && /読み込み中/.test(s.textContent)) s.textContent += '(時間がかかっています。Wi-Fiなど、通信の良い場所でお試しください)'; }, 15000);
+  // アプリ内ブラウザ(LINE・Instagram など)では、ファイル選択や保存が動かないことがある
+  if (/Line\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter|KAKAOTALK|; wv\)/i.test(navigator.userAgent)) {
+    document.addEventListener('DOMContentLoaded', () => {
+      const b = document.createElement('div');
+      b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99;background:#b45309;color:#fff;padding:10px 14px;font:14px/1.5 system-ui,sans-serif;cursor:pointer';
+      b.textContent = 'アプリ内ブラウザでは動かないことがあります。メニューから「ブラウザで開く」を選ぶか、Chrome / Safari でこのURLを開いてください。(タップで閉じる)';
+      b.onclick = () => b.remove();
+      document.body.appendChild(b);
+    });
+  }
+})();
+</script>
 <script src="libs/tf.min.js"></script>
 <script src="libs/coco-ssd.min.js"></script>
 <script>window.MODEL_CFG={base:'lite_mobilenet_v2',modelUrl:'models/model.json'};</script>
@@ -179,7 +212,7 @@ small,.muted{color:var(--muted)}
 const $ = id => document.getElementById(id);
 const v = $('v'), cv = $('cv'), ctx = cv.getContext('2d');
 let model = null, heads = [], dbg = [], lastDet = -1e9, detecting = false, exporting = false;
-let exportStart = 0, exportEnd = 0, exportPlaying = false, picking = false, adding = false, duration = 0, recorder = null, chunks = [];
+let exportStream = null, exportCapture = null, exportStart = 0, exportEnd = 0, exportPlaying = false, picking = false, adding = false, duration = 0, recorder = null, chunks = [];
 let lastOut = null, colors = [], exclusions = [], manuals = [], circles = [];
 
 const setStatus = t => $('status').textContent = t;
@@ -356,7 +389,7 @@ cv.onclick = e => {
     picking = false; cv.classList.remove('pick'); renderSw(); lastDet = -1e9;
     setStatus('色を登録しました(' + colors.length + '色)。'); return;
   }
-  const hit = circles.filter(c => Math.hypot(c.cx - x, c.cy - y) <= c.r).sort((a, b) => a.r - b.r)[0];
+  const hit = circles.filter(c => Math.hypot(c.cx - x, c.cy - y) <= c.r).sort((a, b) => Math.hypot(a.cx - x, a.cy - y) - Math.hypot(b.cx - x, b.cy - y))[0];
   if (adding) {
     if (hit && hit.manual) { manuals.splice(manuals.indexOf(hit.manual), 1); renderEdits(); setStatus('追加した円を削除しました。'); return; }
     const avg = heads.length ? heads.reduce((s, h) => s + h.r, 0) / heads.length : cv.width * 0.06;
@@ -396,7 +429,7 @@ function draw() {
   const t = v.currentTime;
   circles = [];
   if ($('mosaicOn').checked) {
-    if (lastDet < 0 || Math.abs(t - lastDet) >= stepSec()) detect();
+    if ((lastDet < 0 || Math.abs(t - lastDet) >= stepSec()) && !(exporting && exportPlaying && t > exportEnd - 1.5)) detect();   // 終了間際は、重い検出を始めない(終了判定が遅れないように)
     circles = heads.map(h => ({...h, off: exclusions.some(e => inRange(e, t) && near(h, e))}));
     manuals.filter(m => inRange(m, t)).forEach(m => circles.push({cx: m.cx, cy: m.cy, r: m.r, off: false, manual: m}));
     circles.forEach(c => { if (!c.off) pixelate(c); });
@@ -420,6 +453,7 @@ function checkEnd() {
   } else if (!v.paused && v.currentTime >= tE()) v.pause();
 }
 v.onended = () => { checkEnd(); };
+v.addEventListener('timeupdate', checkEnd);   // タイマーが間引かれても、再生位置の更新で終了を判定する
 function loop() {
   draw();
   checkEnd();
@@ -463,9 +497,9 @@ const doExport = async () => {
   v.onseeked = onSeeked;
   heads = []; dbg = []; lastDet = -1e9;
   if ($('mosaicOn').checked) await detect();
-  const vs = cv.captureStream(30);
+  const vs = cv.captureStream(30); exportStream = vs;
   v.muted = false; v.volume = 1;
-  try { (v.captureStream || v.mozCaptureStream).call(v).getAudioTracks().forEach(t => vs.addTrack(t)); } catch (e) {}
+  try { const cs = (v.captureStream || v.mozCaptureStream).call(v); exportCapture = cs; cs.getAudioTracks().forEach(t => vs.addTrack(t)); } catch (e) {}
   recorder = new MediaRecorder(vs, mime ? {mimeType: mime, videoBitsPerSecond: 8e6} : {videoBitsPerSecond: 8e6});
   recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
   recorder.onstop = async () => {
@@ -478,7 +512,6 @@ const doExport = async () => {
     $('saveVideo').hidden = false;
     setStatus(`書き出し完了(${ext}形式、${size}MB)。下の「保存する」を押してください。`);
   };
-  recorder.start(500);
   setStatus('書き出し中…');
   try { await v.play(); }
   catch (e) {
@@ -486,15 +519,22 @@ const doExport = async () => {
     try { await v.play(); setStatus('書き出し中…(再生が制限されたため、音声なしで書き出します)'); }
     catch (e2) { setStatus('再生を開始できませんでした。もう一度「書き出し」を押してください。'); finishExport(); return; }
   }
+  recorder.start(500);   // 再生が実際に始まってから録画を始める(開始前の静止画面が混ざらないように)
   exportPlaying = true;
   const t0 = exportStart, len = exportEnd - exportStart;
   const prog = setInterval(() => { $('prog').style.width = Math.min(100, (v.currentTime - t0) / len * 100) + '%'; if (!exporting) clearInterval(prog); }, 200);
 };
 $('export').onclick = doExport;
+// 録画用のストリームを解放する(解放しないと、書き出しを重ねるたびに再生が遅くなる)
+function releaseStreams() {
+  [exportStream, exportCapture].forEach(st => { try { st && st.getTracks().forEach(t => t.stop()); } catch (e) {} });
+  exportStream = null; exportCapture = null;
+}
 function finishExport() {
   if (!exporting) return;
   exporting = false; exportPlaying = false; v.muted = true;
   if (recorder && recorder.state !== 'inactive') recorder.stop();
+  setTimeout(releaseStreams, 800);
   ['export', 'play', 'tStart', 'tEnd', 'file', 'pick', 'addBtn'].forEach(i => $(i).disabled = false); $('stop').disabled = true;
   $('prog').style.width = '100%';
 }
@@ -511,5 +551,81 @@ const openSheet = o => { $('sheet').hidden = !o; $('shade').hidden = !o; };
 $('settingsBtn').onclick = () => openSheet(true);
 $('closeSheet').onclick = () => openSheet(false);
 $('shade').onclick = () => openSheet(false);
+
+// ---------- プレビューの拡大(ページ全体ではなく、プレビューだけを拡大・移動する) ----------
+(function () {
+  const stage = document.querySelector('.stage');
+  let scale = 1, tx = 0, ty = 0;
+  const pts = new Map(); let pinch = null, panOne = null, suppress = false;
+  const MAXS = 10;
+  const apply = () => { cv.style.transform = scale === 1 ? '' : `translate(${tx}px, ${ty}px) scale(${scale})`; };
+  const clamp = () => {
+    const sw = stage.clientWidth, sh = stage.clientHeight, cw = cv.offsetWidth * scale, ch = cv.offsetHeight * scale;
+    const mx = Math.max(0, (cw - sw) / 2) + 40, my = Math.max(0, (ch - sh) / 2) + 40;   // 画像が画面外へ出てしまわない範囲
+    tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
+  };
+  const center = () => { const r = stage.getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; };
+  function zoomAt(fx, fy, ns) {
+    ns = Math.min(MAXS, Math.max(1, ns));
+    const c = center(), k = ns / scale;
+    tx = (fx - c.x) - k * (fx - c.x - tx); ty = (fy - c.y) - k * (fy - c.y - ty);
+    scale = ns; if (scale === 1) { tx = 0; ty = 0; }
+    clamp(); apply();
+  }
+  window.resetZoom = () => { scale = 1; tx = 0; ty = 0; apply(); };
+  const zc = () => center();
+  const zi = document.getElementById('zoomIn'), zo = document.getElementById('zoomOut'), zr = document.getElementById('zoomReset');
+  if (zi) zi.onclick = () => { const c = zc(); zoomAt(c.x, c.y, scale * 1.6); };
+  if (zo) zo.onclick = () => { const c = zc(); zoomAt(c.x, c.y, scale / 1.6); };
+  if (zr) zr.onclick = () => window.resetZoom();
+  const fileEl = document.getElementById('file');
+  if (fileEl) fileEl.addEventListener('change', () => window.resetZoom());
+
+  // 2本指: 拡大・縮小と移動 / 拡大中の1本指: 移動(編集モード中の1本指は、円の操作を優先)
+  stage.addEventListener('pointerdown', e => {
+    if (e.target.closest && e.target.closest('.zoomctl')) return;
+    pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pts.size === 2) {
+      if (typeof drag !== 'undefined') drag = null;   // 円の移動などは中止
+      const [a, b] = [...pts.values()];
+      pinch = {d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2};
+      panOne = null;
+    } else if (pts.size === 1) {
+      const ed = typeof editing !== 'undefined' && editing;
+      panOne = (scale > 1 && !ed) ? {x: e.clientX, y: e.clientY, moved: false} : null;
+    }
+    if (pts.size >= 2) e.stopPropagation();
+  }, true);
+  stage.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pts.size >= 2 && pinch) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      tx += mx - pinch.mx; ty += my - pinch.my;
+      zoomAt(mx, my, scale * d / (pinch.d || d));
+      pinch.d = d; pinch.mx = mx; pinch.my = my;
+      suppress = true; e.stopPropagation(); e.preventDefault();
+    } else if (panOne && pts.size === 1) {
+      const dx = e.clientX - panOne.x, dy = e.clientY - panOne.y;
+      if (!panOne.moved && Math.hypot(dx, dy) < 6) return;
+      panOne.moved = true; suppress = true;
+      tx += dx; ty += dy; panOne.x = e.clientX; panOne.y = e.clientY;
+      clamp(); apply(); e.stopPropagation();
+    }
+  }, true);
+  const up = e => {
+    pts.delete(e.pointerId);
+    if (pts.size < 2) pinch = null;
+    if (pts.size === 0) { panOne = null; setTimeout(() => { suppress = false; }, 0); }
+  };
+  stage.addEventListener('pointerup', up, true);
+  stage.addEventListener('pointercancel', up, true);
+  stage.addEventListener('click', e => { if (suppress) { e.stopPropagation(); e.preventDefault(); suppress = false; } }, true);
+  // PC: ホイールで拡大・縮小
+  stage.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); }, {passive: false});
+  // iPhone(Safari): ページ全体のピンチ拡大を止める
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
+})();
 </script>
 </body></html>

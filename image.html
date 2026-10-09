@@ -1,4 +1,4 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#2563eb"></head><body><title>静止画モザイク修正</title>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="theme-color" content="#2563eb"></head><body><title>静止画モザイク修正</title>
 <style>
 :root{--bg:#f6f7f9;--fg:#1c1f24;--card:#ffffff;--line:#d9dde3;--accent:#2563eb;--accent-fg:#ffffff;--muted:#5b6472;--bad:#e11d48;--shade:rgba(0,0,0,.45)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161a;--fg:#e8eaed;--card:#1e2126;--line:#33373e;--accent:#6b97f5;--accent-fg:#0b1020;--muted:#a0a7b2;--bad:#ff5c7c;color-scheme:dark}}
@@ -66,11 +66,20 @@ small,.muted{color:var(--muted)}
 .empty{color:#9aa0a9;padding:24px;text-align:center}
 .stage canvas[hidden]{display:none}
 .stage canvas.editing{touch-action:none;cursor:move}
+.stage{position:relative;touch-action:none}
+.stage canvas{transform-origin:50% 50%}
+.zoomctl{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px;z-index:2}
+.zoomctl button{width:38px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,.4);background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 </style>
 <div class="app">
   <div class="stage" id="stage">
     <div class="empty" id="empty">「開く」を押して、画像を選んでください。</div>
     <canvas id="cv" width="640" height="360" hidden></canvas>
+    <div class="zoomctl">
+      <button id="zoomIn" aria-label="拡大"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="zoomOut" aria-label="縮小"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+      <button id="zoomReset" aria-label="拡大をもとに戻す"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div>
   </div>
   <input type="file" id="file" accept="image/*" class="vh">
 
@@ -94,6 +103,9 @@ small,.muted{color:var(--muted)}
 
   <div class="dock">
     <div class="row" id="selbar" hidden>
+      <button class="tool" id="selPrev" aria-label="前の円を選ぶ" style="flex:0 0 46px"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <span id="selCount" class="muted" style="flex:0 0 auto;align-self:center;min-width:3.2em;text-align:center;font-size:13px">--</span>
+      <button class="tool" id="selNext" aria-label="次の円を選ぶ" style="flex:0 0 46px"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
       <button class="tool" id="selToggle" aria-label="選んだ円のモザイクを切り替える">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span id="selToggleTxt">モザイクOFF</span>
       </button>
@@ -156,6 +168,31 @@ small,.muted{color:var(--muted)}
   <p class="hint">画像は、この端末の中だけで処理され、外部には送信されません。保存した画像は、必ず目で見て、隠し漏れがないか確認してください。</p>
 </div>
 
+<script>
+// 診断: 動かないときに、原因が画面に出るようにする
+(function () {
+  const st = () => document.getElementById('status');
+  const show = m => {
+    let t = String(m || '不明なエラー');
+    if (/cocoSsd|\btf\b|tensorflow/i.test(t)) t = 'ライブラリを読み込めませんでした。通信状況を確認して、ページを再読み込みしてください。(' + t + ')';
+    const s = st(); if (s) s.textContent = 'エラー: ' + t;
+  };
+  window.addEventListener('error', e => show(e && e.message));
+  window.addEventListener('unhandledrejection', e => show(e && e.reason && (e.reason.message || e.reason)));
+  // モデルの読み込みが遅いとき
+  setTimeout(() => { const s = st(); if (s && /読み込み中/.test(s.textContent)) s.textContent += '(時間がかかっています。Wi-Fiなど、通信の良い場所でお試しください)'; }, 15000);
+  // アプリ内ブラウザ(LINE・Instagram など)では、ファイル選択や保存が動かないことがある
+  if (/Line\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter|KAKAOTALK|; wv\)/i.test(navigator.userAgent)) {
+    document.addEventListener('DOMContentLoaded', () => {
+      const b = document.createElement('div');
+      b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99;background:#b45309;color:#fff;padding:10px 14px;font:14px/1.5 system-ui,sans-serif;cursor:pointer';
+      b.textContent = 'アプリ内ブラウザでは動かないことがあります。メニューから「ブラウザで開く」を選ぶか、Chrome / Safari でこのURLを開いてください。(タップで閉じる)';
+      b.onclick = () => b.remove();
+      document.body.appendChild(b);
+    });
+  }
+})();
+</script>
 <script src="libs/tf.min.js"></script>
 <script src="libs/coco-ssd.min.js"></script>
 <script>window.MODEL_CFG={base:'lite_mobilenet_v2',modelUrl:'models/model.json'};</script>
@@ -313,7 +350,7 @@ cv.addEventListener('click', e => {
     colors.push({...rgb2hsv(...rgb), rgb});
     picking = false; cv.classList.remove('pick'); renderSw(); setStatus('色を登録しました(' + colors.length + '色)。'); detect(); return;
   }
-  const hit = circles.filter(c => Math.hypot(c.cx - x, c.cy - y) <= c.r).sort((a, b) => a.r - b.r)[0];
+  const hit = circles.filter(c => Math.hypot(c.cx - x, c.cy - y) <= c.r).sort((a, b) => Math.hypot(a.cx - x, a.cy - y) - Math.hypot(b.cx - x, b.cy - y))[0];
   if (hit && hit.manual) { manuals.splice(manuals.indexOf(hit.manual), 1); if (hit.manual.from) exclusions = exclusions.filter(e => e !== hit.manual.from); renderEdits(); redraw(); setStatus(hit.manual.from ? '編集した円を削除し、元の円に戻しました。' : '追加した円を削除しました。'); return; }
   if (adding) {
     const avg = heads.length ? heads.reduce((s, h) => s + h.r, 0) / heads.length : cv.width * 0.06;
@@ -329,13 +366,27 @@ cv.addEventListener('click', e => {
 const toCanvas = e => { const r = cv.getBoundingClientRect(); return {x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height}; };
 const handleR = () => Math.max(12, cv.width / 45);
 function selCircle() { return sel ? (sel.manual || sel.head) : null; }
+function selIndex() {
+  if (!sel) return -1;
+  return circles.findIndex(c => sel.manual ? c.manual === sel.manual : (!c.manual && Math.hypot(c.cx - sel.head.cx, c.cy - sel.head.cy) < 2));
+}
+function selectIndex(i) {
+  if (!circles.length) return;
+  const c = circles[((i % circles.length) + circles.length) % circles.length];
+  sel = c.manual ? {manual: c.manual} : {head: {cx: c.cx, cy: c.cy, r: c.r}};
+  updateSelbar(); redraw();
+}
 function updateSelbar() {
   const c = selCircle();
-  $('selbar').hidden = !(editing && c);
+  $('selbar').hidden = !editing;
   if (!$('selbar').hidden) {
-    const off = sel.manual ? !!sel.manual.off : exclusions.some(e => near(sel.head, e));
+    const i = selIndex();
+    $('selCount').textContent = circles.length ? ((c && i >= 0 ? i + 1 : '-') + ' / ' + circles.length) : '0 / 0';
+    $('selPrev').disabled = $('selNext').disabled = circles.length < 1;
+    const off = c ? (sel.manual ? !!sel.manual.off : exclusions.some(e => near(sel.head, e))) : false;
     $('selToggleTxt').textContent = off ? 'モザイクON' : 'モザイクOFF';
-    $('selDelete').disabled = !sel.manual;
+    $('selToggle').disabled = !c;
+    $('selDelete').disabled = !(c && sel.manual);
   }
 }
 function setEditing(on) {
@@ -353,17 +404,20 @@ function toManual() {
   const m = {cx: h.cx, cy: h.cy, r: h.r, from: ex}; manuals.push(m); sel = {manual: m};
   renderEdits(); updateSelbar();
 }
-let drag = null;
+let drag = null, cycleHits = null;
 cv.addEventListener('pointerdown', e => {
   if (!editing || !loaded || picking || adding) return;
   const p = toCanvas(e), c = selCircle();
   let mode = null;
   if (c && Math.hypot(p.x - (c.cx + c.r), p.y - c.cy) <= handleR() * 1.6) mode = 'resize';
   else {
-    const hit = circles.filter(k => Math.hypot(k.cx - p.x, k.cy - p.y) <= k.r).sort((a, b) => a.r - b.r)[0];
-    if (!hit) { sel = null; updateSelbar(); redraw(); return; }
-    sel = hit.manual ? {manual: hit.manual} : {head: {cx: hit.cx, cy: hit.cy, r: hit.r}};
+    const hits = circles.filter(k => Math.hypot(k.cx - p.x, k.cy - p.y) <= k.r).sort((a, b) => Math.hypot(a.cx - p.x, a.cy - p.y) - Math.hypot(b.cx - p.x, b.cy - p.y));
+    if (!hits.length) { sel = null; updateSelbar(); redraw(); return; }
+    const si = selIndex();
+    const alreadySelected = si >= 0 && hits.includes(circles[si]);
+    if (!alreadySelected) { const hit = hits[0]; sel = hit.manual ? {manual: hit.manual} : {head: {cx: hit.cx, cy: hit.cy, r: hit.r}}; }
     mode = 'move';
+    cycleHits = alreadySelected && hits.length > 1 ? hits : null;   // 選択済みの円を、動かさずにタップしたら、重なった次の円へ
   }
   const cc = selCircle();
   drag = {mode, sx: p.x, sy: p.y, ocx: cc.cx, ocy: cc.cy, moved: false};
@@ -380,8 +434,19 @@ cv.addEventListener('pointermove', e => {
   else m.r = Math.max(8, Math.hypot(p.x - m.cx, p.y - m.cy));
   redraw();
 });
-const endDrag = () => { drag = null; };
-cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+const endDrag = () => { drag = null; cycleHits = null; };
+cv.addEventListener('pointerup', () => {
+  if (drag && !drag.moved && cycleHits) {
+    const cur = cycleHits.findIndex(c => sel.manual ? c.manual === sel.manual : (!c.manual && Math.hypot(c.cx - sel.head.cx, c.cy - sel.head.cy) < 2));
+    const nx = cycleHits[(cur + 1) % cycleHits.length];
+    sel = nx.manual ? {manual: nx.manual} : {head: {cx: nx.cx, cy: nx.cy, r: nx.r}};
+    updateSelbar(); redraw();
+  }
+  endDrag();
+});
+$('selPrev').onclick = () => selectIndex(selIndex() < 0 ? circles.length - 1 : selIndex() - 1);
+$('selNext').onclick = () => selectIndex(selIndex() + 1);
+cv.addEventListener('pointercancel', endDrag);
 $('selToggle').onclick = () => {
   if (!sel) return;
   if (sel.manual) sel.manual.off = !sel.manual.off;
@@ -434,6 +499,15 @@ function redraw(overlay = true) {
         ctx.strokeStyle = c.off ? '#e11d48' : 'rgba(255,255,255,.85)';
         ctx.setLineDash(c.off ? [cv.width / 90, cv.width / 110] : []); ctx.stroke(); ctx.setLineDash([]);
       });
+      if (editing) {   // 円の番号(重なっていても区別できる)
+        const fs = Math.max(14, Math.round(handleR() * 1.15));
+        ctx.font = `bold ${fs}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        circles.forEach((c, i) => {
+          const bx = c.cx, by = c.cy - c.r * 0.55, w = fs * 1.5;
+          ctx.fillStyle = c.off ? '#e11d48' : '#111827'; ctx.beginPath(); ctx.arc(bx, by, w / 2, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#ffffff'; ctx.fillText(String(i + 1), bx, by + 1);
+        });
+      }
       if (editing) {   // 選択中の円: 青い枠と、大きさ変更用の丸(右端)
         const c = selCircle();
         if (c) {
@@ -485,5 +559,81 @@ const openSheet = o => { $('sheet').hidden = !o; $('shade').hidden = !o; };
 $('settingsBtn').onclick = () => openSheet(true);
 $('closeSheet').onclick = () => openSheet(false);
 $('shade').onclick = () => openSheet(false);
+
+// ---------- プレビューの拡大(ページ全体ではなく、プレビューだけを拡大・移動する) ----------
+(function () {
+  const stage = document.querySelector('.stage');
+  let scale = 1, tx = 0, ty = 0;
+  const pts = new Map(); let pinch = null, panOne = null, suppress = false;
+  const MAXS = 10;
+  const apply = () => { cv.style.transform = scale === 1 ? '' : `translate(${tx}px, ${ty}px) scale(${scale})`; };
+  const clamp = () => {
+    const sw = stage.clientWidth, sh = stage.clientHeight, cw = cv.offsetWidth * scale, ch = cv.offsetHeight * scale;
+    const mx = Math.max(0, (cw - sw) / 2) + 40, my = Math.max(0, (ch - sh) / 2) + 40;   // 画像が画面外へ出てしまわない範囲
+    tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
+  };
+  const center = () => { const r = stage.getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; };
+  function zoomAt(fx, fy, ns) {
+    ns = Math.min(MAXS, Math.max(1, ns));
+    const c = center(), k = ns / scale;
+    tx = (fx - c.x) - k * (fx - c.x - tx); ty = (fy - c.y) - k * (fy - c.y - ty);
+    scale = ns; if (scale === 1) { tx = 0; ty = 0; }
+    clamp(); apply();
+  }
+  window.resetZoom = () => { scale = 1; tx = 0; ty = 0; apply(); };
+  const zc = () => center();
+  const zi = document.getElementById('zoomIn'), zo = document.getElementById('zoomOut'), zr = document.getElementById('zoomReset');
+  if (zi) zi.onclick = () => { const c = zc(); zoomAt(c.x, c.y, scale * 1.6); };
+  if (zo) zo.onclick = () => { const c = zc(); zoomAt(c.x, c.y, scale / 1.6); };
+  if (zr) zr.onclick = () => window.resetZoom();
+  const fileEl = document.getElementById('file');
+  if (fileEl) fileEl.addEventListener('change', () => window.resetZoom());
+
+  // 2本指: 拡大・縮小と移動 / 拡大中の1本指: 移動(編集モード中の1本指は、円の操作を優先)
+  stage.addEventListener('pointerdown', e => {
+    if (e.target.closest && e.target.closest('.zoomctl')) return;
+    pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pts.size === 2) {
+      if (typeof drag !== 'undefined') drag = null;   // 円の移動などは中止
+      const [a, b] = [...pts.values()];
+      pinch = {d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2};
+      panOne = null;
+    } else if (pts.size === 1) {
+      const ed = typeof editing !== 'undefined' && editing;
+      panOne = (scale > 1 && !ed) ? {x: e.clientX, y: e.clientY, moved: false} : null;
+    }
+    if (pts.size >= 2) e.stopPropagation();
+  }, true);
+  stage.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pts.size >= 2 && pinch) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      tx += mx - pinch.mx; ty += my - pinch.my;
+      zoomAt(mx, my, scale * d / (pinch.d || d));
+      pinch.d = d; pinch.mx = mx; pinch.my = my;
+      suppress = true; e.stopPropagation(); e.preventDefault();
+    } else if (panOne && pts.size === 1) {
+      const dx = e.clientX - panOne.x, dy = e.clientY - panOne.y;
+      if (!panOne.moved && Math.hypot(dx, dy) < 6) return;
+      panOne.moved = true; suppress = true;
+      tx += dx; ty += dy; panOne.x = e.clientX; panOne.y = e.clientY;
+      clamp(); apply(); e.stopPropagation();
+    }
+  }, true);
+  const up = e => {
+    pts.delete(e.pointerId);
+    if (pts.size < 2) pinch = null;
+    if (pts.size === 0) { panOne = null; setTimeout(() => { suppress = false; }, 0); }
+  };
+  stage.addEventListener('pointerup', up, true);
+  stage.addEventListener('pointercancel', up, true);
+  stage.addEventListener('click', e => { if (suppress) { e.stopPropagation(); e.preventDefault(); suppress = false; } }, true);
+  // PC: ホイールで拡大・縮小
+  stage.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); }, {passive: false});
+  // iPhone(Safari): ページ全体のピンチ拡大を止める
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
+})();
 </script>
 </body></html>

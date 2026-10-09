@@ -1,5 +1,5 @@
 <!doctype html><html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>モザイク修正ツール</title>
 <style>
 :root{--bg:#f6f7f9;--fg:#1c1f24;--card:#fff;--line:#d9dde3;--accent:#2563eb;--muted:#5b6472}
@@ -25,4 +25,26 @@ ul{padding-left:20px;color:var(--muted);font-size:14px}
 <li>iPhone では、動画の書き出しが動かない、または音声が入らないことがあります。</li>
 </ul>
 <p class="note">TensorFlow.js と COCO-SSD(いずれも Apache License 2.0)を使用しています。</p>
+<div id="env" style="margin-top:20px"></div>
+<script>
+// この端末で使える機能を調べて表示する(動かないときの原因の手がかり)
+(function () {
+  const ok = [], ng = [];
+  const c = document.createElement('canvas');
+  const gl = !!(c.getContext('webgl2') || c.getContext('webgl'));
+  const t = (name, cond, hint) => (cond ? ok : ng).push(name + (cond ? '' : '(' + hint + ')'));
+  t('画面の描画(WebGL)', gl, '処理が遅くなる場合があります');
+  t('画像の保存', !!(c.toBlob), '静止画の保存ができません');
+  t('動画の書き出し(録画)', typeof MediaRecorder !== 'undefined' && !!c.captureStream, 'この端末・ブラウザでは、動画の書き出しは使えません');
+  t('共有シートでの保存', !!(navigator.canShare), 'ダウンロードでの保存になります');
+  const inApp = /Line\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter|KAKAOTALK|; wv\)/i.test(navigator.userAgent);
+  const el = document.getElementById('env');
+  el.innerHTML = '<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px">'
+    + '<b>この端末で使える機能</b>'
+    + (inApp ? '<div style="color:#b45309;margin:6px 0">アプリ内ブラウザで開いています。動かないときは、Chrome / Safari で開き直してください。</div>' : '')
+    + '<div style="margin-top:6px;line-height:1.8">' + ok.map(s => '○ ' + s).join('<br>') + (ng.length ? '<br>' : '') + ng.map(s => '× ' + s).join('<br>') + '</div>'
+    + '<div style="color:var(--muted);font-size:12px;margin-top:8px;word-break:break-all">' + navigator.userAgent + '</div></div>';
+})();
+</script>
+
 </div></body></html>
