@@ -174,6 +174,8 @@ small,.muted{color:var(--muted)}
     <input type="range" id="blk" min="4" max="40" value="40">
     <label>円の大きさ <small id="sizeV"></small></label>
     <input type="range" id="size" min="80" max="220" value="120">
+    <label>円を人物の枠の内側へずらす <small id="insetV"></small></label>
+    <input type="range" id="inset" min="0" max="30" value="10">
     <label>検出の間隔 <small id="stepV"></small></label>
     <input type="range" id="step" min="1" max="60" value="10">
     <p class="hint">スマホは処理が重いため、間隔は10フレームを標準にしています。書き出しは、再生と同じ速さで進みます。</p>
@@ -224,9 +226,9 @@ cocoSsd.load(window.MODEL_CFG || {base: 'mobilenet_v2'}).then(m => { model = m; 
   .catch(e => setStatus('モデルの読み込みに失敗しました: ' + e.message));
 
 const bindVal = (id, out, f) => { const u = () => $(out).textContent = f($(id).value); $(id).addEventListener('input', u); u(); };
-bindVal('blk', 'blkV', x => x + ' ブロック'); bindVal('size', 'sizeV', x => x + '%');
+bindVal('blk', 'blkV', x => x + ' ブロック'); bindVal('size', 'sizeV', x => x + '%'); bindVal('inset', 'insetV', x => x + '%');
 bindVal('step', 'stepV', x => x + ' フレーム'); bindVal('tol', 'tolV', x => '色相±' + x);
-['size', 'tol', 'mode'].forEach(i => $(i).addEventListener('change', () => { lastDet = -1e9; }));
+['size', 'tol', 'mode', 'inset'].forEach(i => $(i).addEventListener('change', () => { lastDet = -1e9; }));
 $('mode').addEventListener('change', () => { $('colorBox').style.display = $('mode').value === 'person' ? 'none' : ''; });
 $('mosaicOn').addEventListener('change', () => { lastDet = -1e9; });
 
@@ -335,6 +337,15 @@ function findHelmet(px, py, pw, ph) {
   const x0 = best.x0, x1 = best.x1, y0 = best.y0, y1 = best.y1;
   return {x: rx + x0 / s, y: ry + y0 / s, w: (x1 - x0 + 1) / s, h: (y1 - y0 + 1) / s};
 }
+// 円の位置を、人物の枠の中心側へ、枠の大きさの「内側へずらす」%だけ動かす(0〜30%)
+function withInset(c) {
+  const k = ($('inset') ? +$('inset').value : 0) / 100;
+  if (!c.box || !k) return c;
+  const [bx, by, bw, bh] = c.box;
+  const mv = (v, mid, size) => { const d = mid - v; return v + Math.sign(d) * Math.min(Math.abs(d), k * size); };
+  c.cx = mv(c.cx, bx + bw / 2, bw); c.cy = mv(c.cy, by + bh / 2, bh);
+  return c;
+}
 async function detect() {
   if (!model || detecting) return;
   detecting = true;
@@ -350,10 +361,10 @@ async function detect() {
       if (hm) {
         nd.push({type: 'helmet', r: [hm.x, hm.y, hm.w, hm.h]});
         const hw = Math.max(hm.w, hm.h * 0.9);
-        nh.push({cx: hm.x + hm.w / 2, cy: hm.y + hw * 0.7, r: hw * 0.6 * size, box: [x, y, w, h]});
+        nh.push(withInset({cx: hm.x + hm.w / 2, cy: hm.y + hw * 0.7, r: hw * 0.6 * size, box: [x, y, w, h]}));
       } else if (mode === 'person' || mode === 'both') {
         const hh = Math.max(h * 0.27, w * 0.45);
-        nh.push({cx: x + w / 2, cy: y + hh * 0.45, r: Math.max(hh * 0.65, w * 0.35) * size, box: [x, y, w, h]});
+        nh.push(withInset({cx: x + w / 2, cy: y + hh * 0.45, r: Math.max(hh * 0.65, w * 0.35) * size, box: [x, y, w, h]}));
       }
     }
     heads = nh; dbg = nd; lastDet = t;

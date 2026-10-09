@@ -162,6 +162,8 @@ small,.muted{color:var(--muted)}
     <input type="range" id="blk" min="4" max="60" value="40">
     <label>円の大きさ <small id="sizeV"></small></label>
     <input type="range" id="size" min="80" max="220" value="120">
+    <label>円を人物の枠の内側へずらす <small id="insetV"></small></label>
+    <input type="range" id="inset" min="0" max="30" value="10">
     <label>保存する形式</label>
     <select id="fmt"><option value="png">PNG(高画質)</option><option value="jpg">JPEG(軽い)</option></select>
   </div>
@@ -206,7 +208,7 @@ const MAX_SIDE = 4096;
 
 const setStatus = t => $('status').textContent = t;
 const bindVal = (id, out, f) => { const u = () => $(out).textContent = f($(id).value); $(id).addEventListener('input', u); u(); };
-bindVal('blk', 'blkV', x => x + ' ブロック'); bindVal('size', 'sizeV', x => x + '%'); bindVal('tol', 'tolV', x => '色相±' + x);
+bindVal('blk', 'blkV', x => x + ' ブロック'); bindVal('size', 'sizeV', x => x + '%'); bindVal('inset', 'insetV', x => x + '%'); bindVal('tol', 'tolV', x => '色相±' + x);
 
 cocoSsd.load(window.MODEL_CFG || {base: 'mobilenet_v2'}).then(m => {
   model = m; setStatus(loaded ? '検出中…' : '画像を選んでください。'); if (loaded) detect();
@@ -295,6 +297,15 @@ function findHelmet(px, py, pw, ph) {
   const x0 = best.x0, x1 = best.x1, y0 = best.y0, y1 = best.y1;
   return {x: rx + x0 / s, y: ry + y0 / s, w: (x1 - x0 + 1) / s, h: (y1 - y0 + 1) / s};
 }
+// 円の位置を、人物の枠の中心側へ、枠の大きさの「内側へずらす」%だけ動かす(0〜30%)
+function withInset(c) {
+  const k = ($('inset') ? +$('inset').value : 0) / 100;
+  if (!c.box || !k) return c;
+  const [bx, by, bw, bh] = c.box;
+  const mv = (v, mid, size) => { const d = mid - v; return v + Math.sign(d) * Math.min(Math.abs(d), k * size); };
+  c.cx = mv(c.cx, bx + bw / 2, bw); c.cy = mv(c.cy, by + bh / 2, bh);
+  return c;
+}
 async function detect() {
   if (!model || !loaded) return;
   if (detecting) { pending = true; return; }
@@ -311,10 +322,10 @@ async function detect() {
       if (hm) {
         nd.push({type: 'helmet', r: [hm.x, hm.y, hm.w, hm.h]});
         const hw = Math.max(hm.w, hm.h * 0.9);
-        nh.push({cx: hm.x + hm.w / 2, cy: hm.y + hw * 0.7, r: hw * 0.6 * size, box: [x, y, w, h]});
+        nh.push(withInset({cx: hm.x + hm.w / 2, cy: hm.y + hw * 0.7, r: hw * 0.6 * size, box: [x, y, w, h]}));
       } else if (mode === 'person' || mode === 'both') {
         const hh = Math.max(h * 0.27, w * 0.45);
-        nh.push({cx: x + w / 2, cy: y + hh * 0.45, r: Math.max(hh * 0.65, w * 0.35) * size, box: [x, y, w, h]});
+        nh.push(withInset({cx: x + w / 2, cy: y + hh * 0.45, r: Math.max(hh * 0.65, w * 0.35) * size, box: [x, y, w, h]}));
       }
     }
     heads = nh; dbg = nd;
@@ -324,7 +335,7 @@ async function detect() {
   redraw();
   if (pending) { pending = false; detect(); }
 }
-['mode', 'size', 'tol'].forEach(i => $(i).addEventListener('change', detect));
+['mode', 'size', 'tol', 'inset'].forEach(i => $(i).addEventListener('change', detect));
 $('mode').addEventListener('change', () => { $('colorBox').hidden = $('mode').value === 'person'; });
 
 // ---------- 修正 ----------
