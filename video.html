@@ -17,7 +17,7 @@ video{display:none}
 svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
 svg .f{fill:currentColor;stroke:none}
 .tools{display:flex;gap:5px}
-.tool{flex:1 1 0;min-width:0;min-height:50px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 0;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:10px;line-height:1.2;cursor:pointer}
+.tool{margin:0;font-weight:400;flex:1 1 0;min-width:0;min-height:50px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 0;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:10px;line-height:1.2;cursor:pointer}
 .tool.on{outline:2px solid var(--accent)}
 .tool:disabled{opacity:.45;cursor:not-allowed}
 .tool.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
@@ -171,11 +171,11 @@ small,.muted{color:var(--muted)}
   <div class="group">
     <h3>見え方</h3>
     <label>モザイクの細かさ <small id="blkV"></small></label>
-    <input type="range" id="blk" min="4" max="40" value="40">
+    <input type="range" id="blk" min="4" max="40" value="20">
     <label>円の大きさ <small id="sizeV"></small></label>
-    <input type="range" id="size" min="80" max="220" value="120">
+    <input type="range" id="size" min="80" max="220" value="100">
     <label>円を人物の枠の内側へずらす <small id="insetV"></small></label>
-    <input type="range" id="inset" min="0" max="30" value="10">
+    <input type="range" id="inset" min="0" max="30" value="0">
     <label>検出の間隔 <small id="stepV"></small></label>
     <input type="range" id="step" min="1" max="60" value="10">
     <p class="hint">スマホは処理が重いため、間隔は10フレームを標準にしています。書き出しは、再生と同じ速さで進みます。</p>

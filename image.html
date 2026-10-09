@@ -17,7 +17,7 @@ video{display:none}
 svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
 svg .f{fill:currentColor;stroke:none}
 .tools{display:flex;gap:5px}
-.tool{flex:1 1 0;min-width:0;min-height:50px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 0;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:10px;line-height:1.2;cursor:pointer}
+.tool{margin:0;font-weight:400;flex:1 1 0;min-width:0;min-height:50px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 0;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:10px;line-height:1.2;cursor:pointer}
 .tool.on{outline:2px solid var(--accent)}
 .tool:disabled{opacity:.45;cursor:not-allowed}
 .tool.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
@@ -152,18 +152,18 @@ small,.muted{color:var(--muted)}
 
   <div class="group">
     <h3>モザイクの修正</h3>
-    <p class="hint">検出した人には、最初からモザイクがかかっています。<b>かけたくない人の円をタップ</b>すると解除され(赤い点線)、もう一度タップすると元に戻ります。<b>位置や大きさを直す</b>ときは、画面の「編集」を押して、円をドラッグで動かし、右端の青い丸をドラッグで大きさを変えます。検出されなかった人は、「円追加」を押して画像上をタップすると追加できます(追加した円はタップで削除)。</p>
+    <p class="hint">検出した人には、最初からモザイクがかかっています。<b>かけたくない人の円をタップ</b>すると、その円が削除されます(「設定」の一覧から、元に戻せます)。「編集」を押して円を選ぶと、「解除」(モザイクを外す。赤い点線)や「削除」ができます。<b>位置や大きさを直す</b>ときは、画面の「編集」を押して、円をドラッグで動かし、右端の青い丸をドラッグで大きさを変えます。検出されなかった人は、「円追加」を押して画像上をタップすると追加できます(追加した円はタップで削除)。</p>
     <div class="edits" id="edits"></div>
   </div>
 
   <div class="group">
     <h3>見え方・保存</h3>
     <label>モザイクの細かさ <small id="blkV"></small></label>
-    <input type="range" id="blk" min="4" max="60" value="40">
+    <input type="range" id="blk" min="4" max="60" value="20">
     <label>円の大きさ <small id="sizeV"></small></label>
-    <input type="range" id="size" min="80" max="220" value="120">
+    <input type="range" id="size" min="80" max="220" value="100">
     <label>円を人物の枠の内側へずらす <small id="insetV"></small></label>
-    <input type="range" id="inset" min="0" max="30" value="10">
+    <input type="range" id="inset" min="0" max="30" value="0">
     <label>保存する形式</label>
     <select id="fmt"><option value="png">PNG(高画質)</option><option value="jpg">JPEG(軽い)</option></select>
   </div>
@@ -340,7 +340,7 @@ async function detect() {
       }
     }
     heads = nh; dbg = nd;
-    setStatus(nh.length ? `検出した ${nh.length} 人の頭部にモザイクをかけました。かけたくない人は、円をタップして解除してください。` : '人物が検出されませんでした。「円を追加」で手動で追加できます。');
+    setStatus(nh.length ? `検出した ${nh.length} 人の頭部にモザイクをかけました。かけたくない人は、円をタップして削除してください。` : '人物が検出されませんでした。「円を追加」で手動で追加できます。');
   } catch (e) { console.error(e); setStatus('検出に失敗しました: ' + e.message); }
   detecting = false;
   redraw();
@@ -357,9 +357,9 @@ const near = (a, e) => {
 };
 function renderEdits() {
   const box = $('edits'); box.innerHTML = '';
-  const add = (label, fn) => { const d = document.createElement('div'); d.innerHTML = '<span></span>'; d.firstChild.textContent = label; const b = document.createElement('button'); b.textContent = '削除'; b.onclick = fn; d.appendChild(b); box.appendChild(d); };
+  const add = (label, fn, btn) => { const d = document.createElement('div'); d.innerHTML = '<span></span>'; d.firstChild.textContent = label; const b = document.createElement('button'); b.textContent = btn || '削除'; b.onclick = fn; d.appendChild(b); box.appendChild(d); };
   let k = 0;
-  exclusions.forEach((e, i) => { if (e.hidden) return; add('除外した円 ' + (++k), () => { exclusions.splice(i, 1); renderEdits(); redraw(); }); });
+  exclusions.forEach((e, i) => { if (e.hidden && !e.deleted) return; add((e.deleted ? '削除した円 ' : '解除した円 ') + (++k), () => { exclusions.splice(i, 1); renderEdits(); updateSelbar(); redraw(); }, '元に戻す'); });
   manuals.forEach((e, i) => add((e.from ? '編集した円 ' : '追加した円 ') + (i + 1), () => { manuals.splice(i, 1); if (e.from) exclusions = exclusions.filter(x => x !== e.from); if (sel && sel.manual === e) sel = null; renderEdits(); updateSelbar(); redraw(); }));
 }
 $('addBtn').onclick = () => { if (editing) setEditing(false); adding = !adding; picking = false; cv.classList.toggle('pick', adding); $('addBtn').classList.toggle('on', adding); if (adding) setStatus('画像上をタップすると、その位置に円を追加します。'); };
@@ -383,8 +383,8 @@ cv.addEventListener('click', e => {
     manuals.push({cx: x, cy: y, r: avg}); renderEdits(); redraw(); setStatus('円を追加しました。'); return;
   }
   if (!hit) return;
-  if (hit.off) { exclusions = exclusions.filter(e => !near(hit, e)); setStatus('この円のモザイクをONに戻しました。'); }
-  else { exclusions.push({cx: hit.cx, cy: hit.cy, r: hit.r}); setStatus('この円のモザイクをOFFにしました。'); }
+  if (hit.off) { exclusions = exclusions.filter(e => !near(hit, e)); setStatus('この円のモザイクを元に戻しました。'); }
+  else { exclusions.push({cx: hit.cx, cy: hit.cy, r: hit.r, hidden: true, deleted: true}); setStatus('この円を削除しました。「設定」の一覧から、元に戻せます。'); }
   renderEdits(); redraw();
 });
 
@@ -410,9 +410,9 @@ function updateSelbar() {
     $('selCount').textContent = circles.length ? ((c && i >= 0 ? i + 1 : '-') + ' / ' + circles.length) : '0 / 0';
     $('selPrev').disabled = $('selNext').disabled = circles.length < 1;
     const off = c ? (sel.manual ? !!sel.manual.off : exclusions.some(e => near(sel.head, e))) : false;
-    $('selToggleTxt').textContent = off ? 'モザイクON' : 'モザイクOFF';
+    $('selToggleTxt').textContent = off ? '元に戻す' : '解除';
     $('selToggle').disabled = !c;
-    $('selDelete').disabled = !(c && sel.manual);
+    $('selDelete').disabled = !c;
   }
 }
 function setEditing(on) {
@@ -484,7 +484,11 @@ $('selToggle').onclick = () => {
   renderEdits(); updateSelbar(); redraw();
 };
 $('selDelete').onclick = () => {
-  if (!sel || !sel.manual) return;
+  if (!sel) return;
+  if (!sel.manual) {   // 検出された円の削除
+    const h = sel.head; exclusions.push({cx: h.cx, cy: h.cy, r: h.r, hidden: true, deleted: true});
+    sel = null; renderEdits(); updateSelbar(); redraw(); return;
+  }
   const m = sel.manual; manuals.splice(manuals.indexOf(m), 1);
   if (m.from) exclusions = exclusions.filter(e => e !== m.from);   // 動かした円を消すと、元の円に戻る
   sel = null; renderEdits(); updateSelbar(); redraw();
