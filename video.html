@@ -351,10 +351,21 @@ async function detect() {
   detecting = true;
   const t = v.currentTime, mode = $('mode').value;
   try {
-    const preds = await model.detect(v, 20, 0.3);
+    const preds = await model.detect(v, 60, 0.3);
     const size = $('size').value / 100, nh = [], nd = [];
-    for (const p of preds) {
-      if (p.class !== 'person') continue;
+    // 集団を1人と誤検出した大きな枠(中に、小さな人物の枠が2つ以上入っているもの)を除く
+    let persons = preds.filter(p => p.class === 'person' && p.bbox[2] * p.bbox[3] > 0);
+    persons = persons.filter(p => {
+      const [x, y, w, h] = p.bbox; let inside = 0;
+      for (const q of persons) {
+        if (q === p) continue;
+        const [qx, qy, qw, qh] = q.bbox;
+        const ix = Math.max(0, Math.min(x + w, qx + qw) - Math.max(x, qx)), iy = Math.max(0, Math.min(y + h, qy + qh) - Math.max(y, qy));
+        if (ix * iy >= 0.7 * qw * qh && qw * qh < 0.5 * w * h) inside++;
+      }
+      return inside < 2;
+    });
+    for (const p of persons) {
       const [x, y, w, h] = p.bbox;
       nd.push({type: 'person', r: [x, y, w, h]});
       const hm = (mode !== 'person' && colors.length) ? findHelmet(x, y, w, h) : null;
@@ -379,7 +390,11 @@ function scopeRange() {
   if (s === 'after') return [from, Infinity];
   return [0, Infinity];
 }
-const near = (a, e) => Math.hypot(a.cx - e.cx, a.cy - e.cy) < Math.max(a.r, e.r);
+// 円の同一判定: 中心が近く、大きさも近いものだけを「同じ円」とみなす(大きな円が、周りの小さな円まで巻き込まないように)
+const near = (a, e) => {
+  const lo = Math.min(a.r, e.r), hi = Math.max(a.r, e.r);
+  return hi / Math.max(1, lo) <= 2.5 && Math.hypot(a.cx - e.cx, a.cy - e.cy) < 0.6 * lo;
+};
 const inRange = (e, t) => t >= e.from - 1e-6 && t <= e.to;
 function renderEdits() {
   const box = $('edits'); box.innerHTML = '';

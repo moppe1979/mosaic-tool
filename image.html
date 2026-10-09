@@ -312,10 +312,21 @@ async function detect() {
   detecting = true;
   try {
     const mode = $('mode').value, size = $('size').value / 100;
-    const preds = await model.detect(base, 20, 0.25);
+    const preds = await model.detect(base, 60, 0.25);
     const nh = [], nd = [];
-    for (const p of preds) {
-      if (p.class !== 'person') continue;
+    // 集団を1人と誤検出した大きな枠(中に、小さな人物の枠が2つ以上入っているもの)を除く
+    let persons = preds.filter(p => p.class === 'person' && p.bbox[2] * p.bbox[3] > 0);
+    persons = persons.filter(p => {
+      const [x, y, w, h] = p.bbox; let inside = 0;
+      for (const q of persons) {
+        if (q === p) continue;
+        const [qx, qy, qw, qh] = q.bbox;
+        const ix = Math.max(0, Math.min(x + w, qx + qw) - Math.max(x, qx)), iy = Math.max(0, Math.min(y + h, qy + qh) - Math.max(y, qy));
+        if (ix * iy >= 0.7 * qw * qh && qw * qh < 0.5 * w * h) inside++;
+      }
+      return inside < 2;
+    });
+    for (const p of persons) {
       const [x, y, w, h] = p.bbox;
       nd.push({type: 'person', r: [x, y, w, h]});
       const hm = (mode !== 'person' && colors.length) ? findHelmet(x, y, w, h) : null;
@@ -339,7 +350,11 @@ async function detect() {
 $('mode').addEventListener('change', () => { $('colorBox').hidden = $('mode').value === 'person'; });
 
 // ---------- 修正 ----------
-const near = (a, e) => Math.hypot(a.cx - e.cx, a.cy - e.cy) < Math.max(a.r, e.r);
+// 円の同一判定: 中心が近く、大きさも近いものだけを「同じ円」とみなす(大きな円が、周りの小さな円まで巻き込まないように)
+const near = (a, e) => {
+  const lo = Math.min(a.r, e.r), hi = Math.max(a.r, e.r);
+  return hi / Math.max(1, lo) <= 2.5 && Math.hypot(a.cx - e.cx, a.cy - e.cy) < 0.6 * lo;
+};
 function renderEdits() {
   const box = $('edits'); box.innerHTML = '';
   const add = (label, fn) => { const d = document.createElement('div'); d.innerHTML = '<span></span>'; d.firstChild.textContent = label; const b = document.createElement('button'); b.textContent = '削除'; b.onclick = fn; d.appendChild(b); box.appendChild(d); };
