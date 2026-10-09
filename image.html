@@ -65,6 +65,7 @@ small,.muted{color:var(--muted)}
 .edits button{min-height:32px;padding:2px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .empty{color:#9aa0a9;padding:24px;text-align:center}
 .stage canvas[hidden]{display:none}
+.stage canvas.editing{touch-action:none;cursor:move}
 </style>
 <div class="app">
   <div class="stage" id="stage">
@@ -83,12 +84,23 @@ small,.muted{color:var(--muted)}
     <button class="tool" id="addBtn" disabled aria-label="モザイクの円を追加">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>円追加
     </button>
+    <button class="tool" id="editBtn" disabled aria-label="円を動かす・大きさを変える">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg>編集
+    </button>
     <button class="tool" id="settingsBtn" aria-label="設定を開く">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8M18 7h2M4 17h2M12 17h8"/><circle cx="15" cy="7" r="2.5"/><circle cx="9" cy="17" r="2.5"/></svg>設定
     </button>
   </div>
 
   <div class="dock">
+    <div class="row" id="selbar" hidden>
+      <button class="tool" id="selToggle" aria-label="選んだ円のモザイクを切り替える">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span id="selToggleTxt">モザイクOFF</span>
+      </button>
+      <button class="tool" id="selDelete" aria-label="選んだ円を削除する">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg>削除
+      </button>
+    </div>
     <div class="row">
       <button class="tool primary wide" id="save" disabled aria-label="保存する">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>保存
@@ -128,7 +140,7 @@ small,.muted{color:var(--muted)}
 
   <div class="group">
     <h3>モザイクの修正</h3>
-    <p class="hint">検出した人には、最初からモザイクがかかっています。<b>かけたくない人の円をタップ</b>すると解除され(赤い点線)、もう一度タップすると元に戻ります。検出されなかった人は、「円追加」を押して画像上をタップすると追加できます(追加した円はタップで削除)。</p>
+    <p class="hint">検出した人には、最初からモザイクがかかっています。<b>かけたくない人の円をタップ</b>すると解除され(赤い点線)、もう一度タップすると元に戻ります。<b>位置や大きさを直す</b>ときは、画面の「編集」を押して、円をドラッグで動かし、右端の青い丸をドラッグで大きさを変えます。検出されなかった人は、「円追加」を押して画像上をタップすると追加できます(追加した円はタップで削除)。</p>
     <div class="edits" id="edits"></div>
   </div>
 
@@ -152,7 +164,7 @@ const $ = id => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
 const base = document.createElement('canvas'), bctx = base.getContext('2d', {willReadFrequently: true});
 let model = null, loaded = false, detecting = false, pending = false, fileName = 'image';
-let heads = [], dbg = [], colors = [], exclusions = [], manuals = [], circles = [], picking = false, adding = false;
+let heads = [], dbg = [], colors = [], exclusions = [], manuals = [], circles = [], picking = false, adding = false, editing = false, sel = null;
 const MAX_SIDE = 4096;
 
 const setStatus = t => $('status').textContent = t;
@@ -192,7 +204,7 @@ function renderSw() {
   });
 }
 $('clearColors').onclick = () => { colors = []; renderSw(); detect(); };
-$('pick').onclick = () => { picking = true; adding = false; $('addBtn').classList.remove('on'); cv.classList.add('pick'); setStatus('画像上のヘルメット(または帽子)をタップしてください。'); };
+$('pick').onclick = () => { if (editing) setEditing(false); picking = true; adding = false; $('addBtn').classList.remove('on'); cv.classList.add('pick'); setStatus('画像上のヘルメット(または帽子)をタップしてください。'); };
 
 // ---------- 読み込み ----------
 $('file').onchange = e => {
@@ -205,8 +217,9 @@ $('file').onchange = e => {
     bctx.drawImage(img, 0, 0, base.width, base.height);
     URL.revokeObjectURL(url);
     exclusions = []; manuals = []; heads = []; dbg = []; renderEdits();
+    editing = false; sel = null; $('editBtn').classList.remove('on'); cv.classList.remove('editing'); updateSelbar();
     loaded = true; $('empty').hidden = true; cv.hidden = false;
-    ['save', 'pick', 'addBtn'].forEach(i => $(i).disabled = false);
+    ['save', 'pick', 'addBtn', 'editBtn'].forEach(i => $(i).disabled = false);
     setStatus(`読み込み完了(${base.width}×${base.height}${s < 1 ? '、大きいため縮小' : ''})`);
     redraw(); detect();
   };
@@ -282,11 +295,13 @@ const near = (a, e) => Math.hypot(a.cx - e.cx, a.cy - e.cy) < Math.max(a.r, e.r)
 function renderEdits() {
   const box = $('edits'); box.innerHTML = '';
   const add = (label, fn) => { const d = document.createElement('div'); d.innerHTML = '<span></span>'; d.firstChild.textContent = label; const b = document.createElement('button'); b.textContent = '削除'; b.onclick = fn; d.appendChild(b); box.appendChild(d); };
-  exclusions.forEach((e, i) => add('除外した円 ' + (i + 1), () => { exclusions.splice(i, 1); renderEdits(); redraw(); }));
-  manuals.forEach((e, i) => add('追加した円 ' + (i + 1), () => { manuals.splice(i, 1); renderEdits(); redraw(); }));
+  let k = 0;
+  exclusions.forEach((e, i) => { if (e.hidden) return; add('除外した円 ' + (++k), () => { exclusions.splice(i, 1); renderEdits(); redraw(); }); });
+  manuals.forEach((e, i) => add((e.from ? '編集した円 ' : '追加した円 ') + (i + 1), () => { manuals.splice(i, 1); if (e.from) exclusions = exclusions.filter(x => x !== e.from); if (sel && sel.manual === e) sel = null; renderEdits(); updateSelbar(); redraw(); }));
 }
-$('addBtn').onclick = () => { adding = !adding; picking = false; cv.classList.toggle('pick', adding); $('addBtn').classList.toggle('on', adding); if (adding) setStatus('画像上をタップすると、その位置に円を追加します。'); };
+$('addBtn').onclick = () => { if (editing) setEditing(false); adding = !adding; picking = false; cv.classList.toggle('pick', adding); $('addBtn').classList.toggle('on', adding); if (adding) setStatus('画像上をタップすると、その位置に円を追加します。'); };
 cv.addEventListener('click', e => {
+  if (editing) return;
   const r = cv.getBoundingClientRect();
   const x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height;
   if (picking) {
@@ -299,7 +314,7 @@ cv.addEventListener('click', e => {
     picking = false; cv.classList.remove('pick'); renderSw(); setStatus('色を登録しました(' + colors.length + '色)。'); detect(); return;
   }
   const hit = circles.filter(c => Math.hypot(c.cx - x, c.cy - y) <= c.r).sort((a, b) => a.r - b.r)[0];
-  if (hit && hit.manual) { manuals.splice(manuals.indexOf(hit.manual), 1); renderEdits(); redraw(); setStatus('追加した円を削除しました。'); return; }
+  if (hit && hit.manual) { manuals.splice(manuals.indexOf(hit.manual), 1); if (hit.manual.from) exclusions = exclusions.filter(e => e !== hit.manual.from); renderEdits(); redraw(); setStatus(hit.manual.from ? '編集した円を削除し、元の円に戻しました。' : '追加した円を削除しました。'); return; }
   if (adding) {
     const avg = heads.length ? heads.reduce((s, h) => s + h.r, 0) / heads.length : cv.width * 0.06;
     manuals.push({cx: x, cy: y, r: avg}); renderEdits(); redraw(); setStatus('円を追加しました。'); return;
@@ -309,6 +324,80 @@ cv.addEventListener('click', e => {
   else { exclusions.push({cx: hit.cx, cy: hit.cy, r: hit.r}); setStatus('この円のモザイクをOFFにしました。'); }
   renderEdits(); redraw();
 });
+
+// ---------- 円の編集(移動・大きさ変更・個別のON/OFF・削除) ----------
+const toCanvas = e => { const r = cv.getBoundingClientRect(); return {x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height}; };
+const handleR = () => Math.max(12, cv.width / 45);
+function selCircle() { return sel ? (sel.manual || sel.head) : null; }
+function updateSelbar() {
+  const c = selCircle();
+  $('selbar').hidden = !(editing && c);
+  if (!$('selbar').hidden) {
+    const off = sel.manual ? !!sel.manual.off : exclusions.some(e => near(sel.head, e));
+    $('selToggleTxt').textContent = off ? 'モザイクON' : 'モザイクOFF';
+    $('selDelete').disabled = !sel.manual;
+  }
+}
+function setEditing(on) {
+  editing = on; if (!on) sel = null;
+  if (on) { picking = false; adding = false; cv.classList.remove('pick'); $('addBtn').classList.remove('on'); setStatus('円をドラッグで移動、右端の青い丸をドラッグで大きさを変更。タップで選択できます。'); }
+  $('editBtn').classList.toggle('on', on); cv.classList.toggle('editing', on);
+  updateSelbar(); redraw();
+}
+$('editBtn').onclick = () => setEditing(!editing);
+// 検出された円を動かす・大きさを変えるときは、「元の円を除外 + 新しい円を追加」に置き換える(再検出しても保たれる)
+function toManual() {
+  if (!sel || sel.manual) return;
+  const h = sel.head;
+  const ex = {cx: h.cx, cy: h.cy, r: h.r, hidden: true}; exclusions.push(ex);
+  const m = {cx: h.cx, cy: h.cy, r: h.r, from: ex}; manuals.push(m); sel = {manual: m};
+  renderEdits(); updateSelbar();
+}
+let drag = null;
+cv.addEventListener('pointerdown', e => {
+  if (!editing || !loaded || picking || adding) return;
+  const p = toCanvas(e), c = selCircle();
+  let mode = null;
+  if (c && Math.hypot(p.x - (c.cx + c.r), p.y - c.cy) <= handleR() * 1.6) mode = 'resize';
+  else {
+    const hit = circles.filter(k => Math.hypot(k.cx - p.x, k.cy - p.y) <= k.r).sort((a, b) => a.r - b.r)[0];
+    if (!hit) { sel = null; updateSelbar(); redraw(); return; }
+    sel = hit.manual ? {manual: hit.manual} : {head: {cx: hit.cx, cy: hit.cy, r: hit.r}};
+    mode = 'move';
+  }
+  const cc = selCircle();
+  drag = {mode, sx: p.x, sy: p.y, ocx: cc.cx, ocy: cc.cy, moved: false};
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  updateSelbar(); redraw(); e.preventDefault();
+});
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = toCanvas(e);
+  if (!drag.moved && Math.hypot(p.x - drag.sx, p.y - drag.sy) < Math.max(4, cv.width / 200)) return;
+  if (!drag.moved) { drag.moved = true; toManual(); }
+  const m = sel.manual;
+  if (drag.mode === 'move') { m.cx = drag.ocx + (p.x - drag.sx); m.cy = drag.ocy + (p.y - drag.sy); }
+  else m.r = Math.max(8, Math.hypot(p.x - m.cx, p.y - m.cy));
+  redraw();
+});
+const endDrag = () => { drag = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+$('selToggle').onclick = () => {
+  if (!sel) return;
+  if (sel.manual) sel.manual.off = !sel.manual.off;
+  else {
+    const h = sel.head;
+    if (exclusions.some(e => near(h, e))) exclusions = exclusions.filter(e => !near(h, e));
+    else exclusions.push({cx: h.cx, cy: h.cy, r: h.r});
+  }
+  renderEdits(); updateSelbar(); redraw();
+};
+$('selDelete').onclick = () => {
+  if (!sel || !sel.manual) return;
+  const m = sel.manual; manuals.splice(manuals.indexOf(m), 1);
+  if (m.from) exclusions = exclusions.filter(e => e !== m.from);   // 動かした円を消すと、元の円に戻る
+  sel = null; renderEdits(); updateSelbar(); redraw();
+};
 
 // ---------- 描画 ----------
 const tmp = document.createElement('canvas'), tctx = tmp.getContext('2d');
@@ -334,17 +423,26 @@ function redraw(overlay = true) {
   ctx.drawImage(base, 0, 0);
   circles = [];
   if ($('mosaicOn').checked) {
-    circles = heads.map(h => ({...h, off: exclusions.some(e => near(h, e))}));
-    manuals.forEach(m => circles.push({cx: m.cx, cy: m.cy, r: m.r, off: false, manual: m}));
+    circles = heads.filter(h => !exclusions.some(e => e.hidden && near(h, e))).map(h => ({...h, off: exclusions.some(e => near(h, e))}));
+    manuals.forEach(m => circles.push({cx: m.cx, cy: m.cy, r: m.r, off: !!m.off, manual: m}));
     circles.forEach(c => { if (!c.off) pixelate(c); });
     if (overlay) {
       ctx.lineWidth = Math.max(2, cv.width / 500);
       if ($('debug').checked) dbg.forEach(d => { ctx.strokeStyle = d.type === 'person' ? 'lime' : 'orange'; ctx.setLineDash([]); ctx.strokeRect(...d.r); });
-      if ($('outline').checked) circles.forEach(c => {
+      if ($('outline').checked || editing) circles.forEach(c => {
         ctx.beginPath(); ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2);
         ctx.strokeStyle = c.off ? '#e11d48' : 'rgba(255,255,255,.85)';
         ctx.setLineDash(c.off ? [cv.width / 90, cv.width / 110] : []); ctx.stroke(); ctx.setLineDash([]);
       });
+      if (editing) {   // 選択中の円: 青い枠と、大きさ変更用の丸(右端)
+        const c = selCircle();
+        if (c) {
+          ctx.setLineDash([]); ctx.lineWidth = Math.max(3, cv.width / 300); ctx.strokeStyle = '#2563eb';
+          ctx.beginPath(); ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.arc(c.cx + c.r, c.cy, handleR(), 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(2, cv.width / 500); ctx.stroke();
+        }
+      }
     }
   }
 }
