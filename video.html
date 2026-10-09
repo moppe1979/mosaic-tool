@@ -1,0 +1,465 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#2563eb"></head><body><title>動画モザイク スマホ版</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c1f24;--card:#ffffff;--line:#d9dde3;--accent:#2563eb;--accent-fg:#ffffff;--muted:#5b6472;--bad:#e11d48}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161a;--fg:#e8eaed;--card:#1e2126;--line:#33373e;--accent:#6b97f5;--accent-fg:#0b1020;--muted:#a0a7b2;--bad:#ff5c7c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14161a;--fg:#e8eaed;--card:#1e2126;--line:#33373e;--accent:#6b97f5;--accent-fg:#0b1020;--muted:#a0a7b2;--bad:#ff5c7c;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,"Hiragino Sans","Yu Gothic",sans-serif;padding-inline:16px;padding-block:12px 0}
+.app{max-width:720px;margin:0 auto}
+h1{font-size:18px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:10px}
+.stage{background:#000;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:140px;margin-top:10px}
+.stage canvas{max-width:100%;max-height:50vh;display:block;touch-action:manipulation}
+.stage canvas.pick{cursor:crosshair}
+video{display:none}
+details>summary{cursor:pointer;font-weight:700;min-height:36px;display:flex;align-items:center}
+label{display:block;margin:12px 0 2px;font-weight:600}
+label.chk{display:flex;gap:10px;align-items:center;font-weight:500;margin:8px 0;min-height:36px}
+small,.muted{color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:6px 0 0}
+input[type=range]{width:100%;margin:6px 0;height:30px}
+input[type=file]{width:100%;font-size:16px}
+input[type=checkbox]{width:22px;height:22px;flex:0 0 auto}
+select{font:inherit;width:100%;min-height:46px;padding:6px 8px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+button{font:inherit;min-height:46px;padding:8px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:700}
+button.on{outline:2px solid var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.row>*{flex:1 1 auto}
+.sw{width:32px;height:32px;border-radius:7px;border:2px solid var(--line);cursor:pointer;flex:0 0 auto}
+.tb{position:relative;height:46px;margin-top:4px;cursor:pointer}
+.tb .track{position:absolute;left:0;right:0;top:19px;height:8px;background:var(--line);border-radius:4px}
+.tb .fill{position:absolute;top:19px;height:8px;background:var(--accent);border-radius:4px}
+.tb .ph{position:absolute;top:5px;width:3px;height:36px;background:var(--bad);pointer-events:none}
+.tb input{position:absolute;left:0;top:3px;width:100%;height:40px;margin:0;pointer-events:none;-webkit-appearance:none;appearance:none;background:transparent}
+.tb input::-webkit-slider-runnable-track{background:transparent}
+.tb input::-moz-range-track{background:transparent}
+.tb input::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;appearance:none;width:26px;height:40px;border-radius:8px;background:var(--accent);border:3px solid #fff;cursor:ew-resize}
+.tb input::-moz-range-thumb{pointer-events:auto;width:20px;height:34px;border-radius:8px;background:var(--accent);border:3px solid #fff;cursor:ew-resize}
+.edits div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:2px 0}
+.edits button{min-height:34px;padding:2px 12px}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;width:0;background:var(--accent)}
+.dock{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);margin-inline:-16px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));margin-top:14px}
+#status{min-height:1.5em;margin-top:6px;font-size:14px}
+.pad{height:8px}
+</style>
+<div class="app">
+<h1>動画モザイク スマホ版</h1>
+<div class="card">
+  <input type="file" id="file" accept="video/*">
+  <p class="hint">動画は、この端末の中だけで処理され、外部には送信されません。</p>
+</div>
+<div class="stage"><canvas id="cv" width="360" height="640"></canvas></div>
+<video id="v" playsinline muted></video>
+
+<div class="card">
+  <div class="row" style="margin-top:0">
+    <button id="play" disabled>▶ 再生</button>
+    <span id="time" class="muted" style="flex:0 0 auto">0.0 / 0.0 秒</span>
+  </div>
+  <label style="margin-top:8px">トリミング(両端のつまみで範囲を選ぶ)</label>
+  <div class="tb" id="tb">
+    <div class="track"></div><div class="fill" id="fill"></div><div class="ph" id="ph"></div>
+    <input type="range" id="tStart" min="0" max="1000" value="0" step="1">
+    <input type="range" id="tEnd" min="0" max="1000" value="1000" step="1">
+  </div>
+  <div id="trimInfo" class="muted">開始 0.0 秒 / 終了 0.0 秒(長さ 0.0 秒)</div>
+  <div class="row">
+    <button id="toStart" disabled>開始を今の位置に</button>
+    <button id="toEnd" disabled>終了を今の位置に</button>
+  </div>
+</div>
+
+<details class="card" open>
+  <summary>モザイクの方式</summary>
+  <label class="chk"><input type="checkbox" id="mosaicOn" checked> モザイクをかける</label>
+  <select id="mode">
+    <option value="both" selected>ヘルメット色 + 人物から推定(漏れにくい)</option>
+    <option value="helmet">ヘルメット色のみ</option>
+    <option value="person">人物から推定のみ</option>
+  </select>
+  <div id="colorBox">
+    <label>ヘルメット・帽子の色</label>
+    <p class="hint">「色を選ぶ」→動画上のヘルメットをタップ。色の見本をタップすると削除。</p>
+    <div class="row"><button id="pick" disabled>色を選ぶ</button><button id="clearColors">全部消す</button></div>
+    <div class="row" id="sws" style="gap:6px"></div>
+    <label>色の許容範囲 <small id="tolV"></small></label>
+    <input type="range" id="tol" min="5" max="60" value="22">
+  </div>
+</details>
+
+<details class="card">
+  <summary>モザイクの修正</summary>
+  <p class="hint">円をタップ=ON/OFF(白枠=あり、赤い点線=なし)。「円を追加」→動画上をタップで追加、円をタップで削除。</p>
+  <div class="row"><button id="addBtn" disabled>円を追加</button></div>
+  <label>修正の適用範囲</label>
+  <select id="scope">
+    <option value="seg">この検出区間だけ</option>
+    <option value="after" selected>ここから最後まで</option>
+    <option value="all">動画全体</option>
+  </select>
+  <div class="edits" id="edits"></div>
+</details>
+
+<details class="card">
+  <summary>見え方の設定</summary>
+  <label>モザイクの細かさ <small id="blkV"></small></label>
+  <input type="range" id="blk" min="4" max="40" value="40">
+  <label>円の大きさ <small id="sizeV"></small></label>
+  <input type="range" id="size" min="80" max="220" value="120">
+  <label>検出の間隔 <small id="stepV"></small></label>
+  <input type="range" id="step" min="1" max="60" value="10">
+  <p class="hint">スマホは処理が重いため、間隔は10フレームを標準にしています。書き出しは、再生と同じ速さで進みます。</p>
+  <label class="chk"><input type="checkbox" id="outline" checked> 円の枠を表示(書き出しには入りません)</label>
+  <label class="chk"><input type="checkbox" id="debug"> 検出枠を表示(緑=人物、橙=ヘルメット色)</label>
+</details>
+
+<div class="dock">
+  <div class="row" style="margin-top:0">
+    <button id="export" class="primary" disabled style="flex:2">書き出して保存</button>
+    <button id="stop" disabled>中止</button>
+  </div>
+  <div class="row"><button id="saveVideo" class="primary" hidden>保存する</button></div>
+  <div class="bar"><i id="prog"></i></div>
+  <div id="status" class="muted">人物検出モデルを読み込み中…</div>
+  <small>書き出し中は、他のアプリに切り替えないでください。</small>
+</div>
+</div>
+
+<script src="libs/tf.min.js"></script>
+<script src="libs/coco-ssd.min.js"></script>
+<script>window.MODEL_CFG={base:'lite_mobilenet_v2',modelUrl:'models/model.json'};</script>
+<script>
+const $ = id => document.getElementById(id);
+const v = $('v'), cv = $('cv'), ctx = cv.getContext('2d');
+let model = null, heads = [], dbg = [], lastDet = -1e9, detecting = false, exporting = false;
+let exportStart = 0, exportEnd = 0, exportPlaying = false, picking = false, adding = false, duration = 0, recorder = null, chunks = [];
+let lastOut = null, colors = [], exclusions = [], manuals = [], circles = [];
+
+const setStatus = t => $('status').textContent = t;
+const fmt = s => s.toFixed(1);
+const stepSec = () => $('step').value / 30;
+
+setStatus('人物検出モデルを読み込み中…');
+cocoSsd.load(window.MODEL_CFG || {base: 'mobilenet_v2'}).then(m => { model = m; setStatus('モデル準備完了。動画を選択してください。'); })
+  .catch(e => setStatus('モデルの読み込みに失敗しました: ' + e.message));
+
+const bindVal = (id, out, f) => { const u = () => $(out).textContent = f($(id).value); $(id).addEventListener('input', u); u(); };
+bindVal('blk', 'blkV', x => x + ' ブロック'); bindVal('size', 'sizeV', x => x + '%');
+bindVal('step', 'stepV', x => x + ' フレーム'); bindVal('tol', 'tolV', x => '色相±' + x);
+['size', 'tol', 'mode'].forEach(i => $(i).addEventListener('change', () => { lastDet = -1e9; }));
+$('mode').addEventListener('change', () => { $('colorBox').style.display = $('mode').value === 'person' ? 'none' : ''; });
+$('mosaicOn').addEventListener('change', () => { lastDet = -1e9; });
+
+// ---------- 色 ----------
+function rgb2hsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d) { if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+  return {h, s: mx ? d / mx : 0, v: mx};
+}
+function renderSw() {
+  $('sws').innerHTML = '';
+  colors.forEach((c, i) => {
+    const d = document.createElement('div'); d.className = 'sw'; d.title = 'クリックで削除';
+    d.style.background = `rgb(${c.rgb.join(',')})`;
+    d.onclick = () => { colors.splice(i, 1); renderSw(); lastDet = -1e9; };
+    $('sws').appendChild(d);
+  });
+}
+$('clearColors').onclick = () => { colors = []; renderSw(); lastDet = -1e9; };
+$('pick').onclick = () => { picking = true; adding = false; $('addBtn').classList.remove('on'); cv.classList.add('pick'); setStatus('動画上のヘルメット(または帽子)をクリックしてください。'); };
+function matchColor(r, g, b) {
+  const c = rgb2hsv(r, g, b), tol = +$('tol').value;
+  for (const t of colors) {
+    if (t.s < 0.2) { if (c.s < 0.25 && Math.abs(c.v - t.v) < 0.15) return true; }
+    else {
+      let dh = Math.abs(c.h - t.h); dh = Math.min(dh, 360 - dh);
+      if (dh <= tol && Math.abs(c.s - t.s) < 0.4 && c.v > 0.25 && Math.abs(c.v - t.v) < 0.45) return true;
+    }
+  }
+  return false;
+}
+
+// ---------- 読み込み ----------
+$('file').onchange = e => { const f = e.target.files[0]; if (f) { v.src = URL.createObjectURL(f); exclusions = []; manuals = []; renderEdits(); } };
+v.onloadedmetadata = () => {
+  duration = v.duration;
+  cv.width = v.videoWidth; cv.height = v.videoHeight;
+  $('tStart').value = 0; $('tEnd').value = 1000;
+  ['play', 'export', 'toStart', 'toEnd', 'pick', 'addBtn'].forEach(i => $(i).disabled = false);
+  heads = []; dbg = []; lastDet = -1e9; v.currentTime = 0;
+  updateTrim(); setStatus('読み込み完了(' + v.videoWidth + '×' + v.videoHeight + ', ' + fmt(duration) + '秒)');
+};
+const onSeeked = () => { lastDet = -1e9; draw(); };
+v.onseeked = onSeeked;
+
+// ---------- トリミング(1本バー) ----------
+const tS = () => $('tStart').value / 1000 * duration;
+const tE = () => $('tEnd').value / 1000 * duration;
+function layoutBar() {
+  const a = $('tStart').value / 1000, b = $('tEnd').value / 1000, p = duration ? v.currentTime / duration : 0;
+  const pos = q => `calc(${q * 100}% + ${8 - 16 * q}px)`;
+  $('fill').style.left = pos(a); $('fill').style.width = `calc(${(b - a) * 100}% - ${16 * (b - a)}px)`;
+  $('ph').style.left = pos(Math.min(1, Math.max(0, p)));
+}
+function updateTrim(src) {
+  const s = $('tStart'), e = $('tEnd');
+  if (+s.value > +e.value - 1) { if (src === 'e') e.value = +s.value + 1; else s.value = +e.value - 1; }
+  $('trimInfo').textContent = `開始 ${fmt(tS())} 秒 / 終了 ${fmt(tE())} 秒(長さ ${fmt(tE() - tS())} 秒)`;
+  layoutBar();
+}
+$('tStart').oninput = () => { updateTrim('s'); v.currentTime = tS(); };
+$('tEnd').oninput = () => { updateTrim('e'); v.currentTime = Math.max(0, tE() - 0.05); };
+$('tb').addEventListener('click', e => {
+  if (e.target.tagName === 'INPUT' || !duration) return;
+  const r = $('tb').getBoundingClientRect();
+  v.currentTime = Math.min(duration, Math.max(0, (e.clientX - r.left - 8) / (r.width - 16) * duration));
+});
+$('toStart').onclick = () => { $('tStart').value = v.currentTime / duration * 1000; updateTrim('s'); };
+$('toEnd').onclick = () => { $('tEnd').value = v.currentTime / duration * 1000; updateTrim('e'); };
+$('play').onclick = () => {
+  if (v.paused) { if (v.currentTime < tS() || v.currentTime >= tE()) v.currentTime = tS(); v.play(); } else v.pause();
+};
+v.onplay = () => $('play').textContent = '⏸ 一時停止';
+v.onpause = () => $('play').textContent = '▶ 再生';
+
+// ---------- 検出 ----------
+const sc = document.createElement('canvas'), sctx = sc.getContext('2d', {willReadFrequently: true});
+function findHelmet(px, py, pw, ph) {
+  const rx = Math.max(0, px - pw * 0.1), ry = Math.max(0, py - ph * 0.05);
+  const rw = Math.min(cv.width - rx, pw * 1.2), rh = Math.min(cv.height - ry, ph * 0.38);
+  if (rw < 8 || rh < 8) return null;
+  const s = Math.min(1, 96 / rw), w = Math.max(1, Math.round(rw * s)), h = Math.max(1, Math.round(rh * s));
+  sc.width = w; sc.height = h;
+  sctx.drawImage(v, rx, ry, rw, rh, 0, 0, w, h);
+  const d = sctx.getImageData(0, 0, w, h).data, mask = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) if (matchColor(d[i * 4], d[i * 4 + 1], d[i * 4 + 2])) mask[i] = 1;
+  // 色が一致した領域のうち、最も大きい1つの塊だけを使う(背景の似た色を拾わないため)
+  const seen = new Uint8Array(w * h); let best = null;
+  for (let s = 0; s < w * h; s++) {
+    if (!mask[s] || seen[s]) continue;
+    const st = [s]; seen[s] = 1; let n = 0, x0 = w, x1 = 0, y0 = h, y1 = 0;
+    while (st.length) {
+      const p = st.pop(), px_ = p % w, py_ = (p / w) | 0; n++;
+      if (px_ < x0) x0 = px_; if (px_ > x1) x1 = px_; if (py_ < y0) y0 = py_; if (py_ > y1) y1 = py_;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = px_ + dx, ny = py_ + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const q = ny * w + nx; if (mask[q] && !seen[q]) { seen[q] = 1; st.push(q); }
+      }
+    }
+    if (!best || n > best.n) best = {n, x0, x1, y0, y1};
+  }
+  if (!best || best.n < Math.max(6, w * h * 0.01)) return null;
+  const x0 = best.x0, x1 = best.x1, y0 = best.y0, y1 = best.y1;
+  return {x: rx + x0 / s, y: ry + y0 / s, w: (x1 - x0 + 1) / s, h: (y1 - y0 + 1) / s};
+}
+async function detect() {
+  if (!model || detecting) return;
+  detecting = true;
+  const t = v.currentTime, mode = $('mode').value;
+  try {
+    const preds = await model.detect(v, 20, 0.3);
+    const size = $('size').value / 100, nh = [], nd = [];
+    for (const p of preds) {
+      if (p.class !== 'person') continue;
+      const [x, y, w, h] = p.bbox;
+      nd.push({type: 'person', r: [x, y, w, h]});
+      const hm = (mode !== 'person' && colors.length) ? findHelmet(x, y, w, h) : null;
+      if (hm) {
+        nd.push({type: 'helmet', r: [hm.x, hm.y, hm.w, hm.h]});
+        const hw = Math.max(hm.w, hm.h * 0.9);
+        nh.push({cx: hm.x + hm.w / 2, cy: hm.y + hw * 0.7, r: hw * 0.6 * size});
+      } else if (mode === 'person' || mode === 'both') {
+        const hh = Math.max(h * 0.27, w * 0.45);
+        nh.push({cx: x + w / 2, cy: y + hh * 0.45, r: Math.max(hh * 0.65, w * 0.35) * size});
+      }
+    }
+    heads = nh; dbg = nd; lastDet = t;
+  } catch (e) { console.error(e); }
+  detecting = false;
+}
+
+// ---------- 修正(ON/OFF・追加) ----------
+function scopeRange() {
+  const t = v.currentTime, from = lastDet > -1e8 ? lastDet : t, s = $('scope').value;
+  if (s === 'seg') return [from, from + stepSec() - 1e-3];
+  if (s === 'after') return [from, Infinity];
+  return [0, Infinity];
+}
+const near = (a, e) => Math.hypot(a.cx - e.cx, a.cy - e.cy) < Math.max(a.r, e.r);
+const inRange = (e, t) => t >= e.from - 1e-6 && t <= e.to;
+function renderEdits() {
+  const box = $('edits'); box.innerHTML = '';
+  const rng = e => `${fmt(Math.max(0, e.from))}〜${e.to === Infinity ? '最後' : fmt(e.to)}秒`;
+  exclusions.forEach((e, i) => { const d = document.createElement('div'); d.innerHTML = `<span>除外 ${rng(e)}</span>`; const b = document.createElement('button'); b.textContent = '削除'; b.onclick = () => { exclusions.splice(i, 1); renderEdits(); }; d.appendChild(b); box.appendChild(d); });
+  manuals.forEach((e, i) => { const d = document.createElement('div'); d.innerHTML = `<span>追加 ${rng(e)}</span>`; const b = document.createElement('button'); b.textContent = '削除'; b.onclick = () => { manuals.splice(i, 1); renderEdits(); }; d.appendChild(b); box.appendChild(d); });
+}
+$('addBtn').onclick = () => { adding = !adding; picking = false; cv.classList.toggle('pick', adding); $('addBtn').classList.toggle('on', adding); if (adding) setStatus('動画上をクリックすると、その位置に円を追加します。'); };
+cv.onclick = e => {
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height;
+  if (picking) {
+    const R = 3, p = ctx.getImageData(Math.max(0, Math.round(x) - R), Math.max(0, Math.round(y) - R), R * 2 + 1, R * 2 + 1).data;
+    let sr = 0, sg = 0, sb = 0; const n = p.length / 4;
+    for (let i = 0; i < p.length; i += 4) { sr += p[i]; sg += p[i + 1]; sb += p[i + 2]; }
+    const rgb = [Math.round(sr / n), Math.round(sg / n), Math.round(sb / n)];
+    colors.push({...rgb2hsv(...rgb), rgb});
+    picking = false; cv.classList.remove('pick'); renderSw(); lastDet = -1e9;
+    setStatus('色を登録しました(' + colors.length + '色)。'); return;
+  }
+  const hit = circles.filter(c => Math.hypot(c.cx - x, c.cy - y) <= c.r).sort((a, b) => a.r - b.r)[0];
+  if (adding) {
+    if (hit && hit.manual) { manuals.splice(manuals.indexOf(hit.manual), 1); renderEdits(); setStatus('追加した円を削除しました。'); return; }
+    const avg = heads.length ? heads.reduce((s, h) => s + h.r, 0) / heads.length : cv.width * 0.06;
+    const [from, to] = scopeRange();
+    manuals.push({cx: x, cy: y, r: avg, from, to}); renderEdits(); setStatus('円を追加しました。'); return;
+  }
+  if (!hit) return;
+  if (hit.manual) { manuals.splice(manuals.indexOf(hit.manual), 1); renderEdits(); setStatus('追加した円を削除しました。'); return; }
+  const t = v.currentTime;
+  if (hit.off) { exclusions = exclusions.filter(e => !(inRange(e, t) && near(hit, e))); setStatus('この円のモザイクをONに戻しました。'); }
+  else { const [from, to] = scopeRange(); exclusions.push({cx: hit.cx, cy: hit.cy, r: hit.r, from, to}); setStatus('この円のモザイクをOFFにしました。'); }
+  renderEdits();
+};
+
+// ---------- 描画 ----------
+const tmp = document.createElement('canvas'), tctx = tmp.getContext('2d');
+function pixelate(b) {
+  const W = cv.width, H = cv.height;
+  const x = Math.max(0, Math.floor(b.cx - b.r)), y = Math.max(0, Math.floor(b.cy - b.r));
+  const w = Math.min(W - x, Math.ceil(b.r * 2)), h = Math.min(H - y, Math.ceil(b.r * 2));
+  if (w < 2 || h < 2) return;
+  const n = +$('blk').value;
+  const bw = Math.max(1, Math.round(n * w / (b.r * 2))), bh = Math.max(1, Math.round(n * h / (b.r * 2)));
+  tmp.width = bw; tmp.height = bh;
+  tctx.imageSmoothingEnabled = true;
+  tctx.drawImage(cv, x, y, w, h, 0, 0, bw, bh);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.clip();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(tmp, 0, 0, bw, bh, x, y, w, h);
+  ctx.restore();
+}
+function draw() {
+  if (!duration) return;
+  ctx.drawImage(v, 0, 0, cv.width, cv.height);
+  const t = v.currentTime;
+  circles = [];
+  if ($('mosaicOn').checked) {
+    if (lastDet < 0 || Math.abs(t - lastDet) >= stepSec()) detect();
+    circles = heads.map(h => ({...h, off: exclusions.some(e => inRange(e, t) && near(h, e))}));
+    manuals.filter(m => inRange(m, t)).forEach(m => circles.push({cx: m.cx, cy: m.cy, r: m.r, off: false, manual: m}));
+    circles.forEach(c => { if (!c.off) pixelate(c); });
+    if (!exporting) {
+      ctx.lineWidth = Math.max(2, cv.width / 400);
+      if ($('debug').checked) dbg.forEach(d => { ctx.strokeStyle = d.type === 'person' ? 'lime' : 'orange'; ctx.setLineDash([]); ctx.strokeRect(...d.r); });
+      if ($('outline').checked) circles.forEach(c => {
+        ctx.beginPath(); ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2);
+        ctx.strokeStyle = c.off ? '#e11d48' : 'rgba(255,255,255,.8)'; ctx.setLineDash(c.off ? [10, 8] : []); ctx.stroke(); ctx.setLineDash([]);
+      });
+    }
+  }
+  $('time').textContent = `${fmt(t)} / ${fmt(duration)} 秒`;
+  layoutBar();
+}
+function checkEnd() {
+  if (!duration) return;
+  if (exporting) {
+    if (!exportPlaying) return;   // 書き出しの準備中(位置移動・検出)は終了判定しない
+    if (v.ended || v.currentTime >= exportEnd - 0.02) { v.pause(); finishExport(); }
+  } else if (!v.paused && v.currentTime >= tE()) v.pause();
+}
+v.onended = () => { checkEnd(); };
+function loop() {
+  draw();
+  checkEnd();
+  v.requestVideoFrameCallback ? v.requestVideoFrameCallback(loop) : requestAnimationFrame(loop);
+}
+loop();
+setInterval(() => { checkEnd(); if (v.paused) draw(); }, 200);   // 動画が止まるとフレーム通知が来ないため、終了判定は定期処理でも行う
+
+// ---------- 保存 ----------
+async function saveBlob(blob, name) {
+  const file = new File([blob], name, {type: blob.type});
+  // スマホ: 共有シート(「写真に保存」「ファイルに保存」などを選べる)
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && navigator.canShare && navigator.canShare({files: [file]})) {
+    try { await navigator.share({files: [file]}); return 'saved'; }
+    catch (e) { if (e && e.name === 'AbortError') return 'declined'; }
+  }
+  // PC(Chrome / Edge): 保存先を選ぶ
+  if (window.showSaveFilePicker) {
+    try {
+      const ext = name.split('.').pop();
+      const h = await window.showSaveFilePicker({suggestedName: name, types: [{description: 'ファイル', accept: {[blob.type || 'application/octet-stream']: ['.' + ext]}}]});
+      const w = await h.createWritable(); await w.write(blob); await w.close(); return 'saved';
+    } catch (e) { if (e && e.name === 'AbortError') return 'declined'; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+  return 'saved';
+}
+// ---------- 書き出し ----------
+const doExport = async () => {
+  if (exporting) return;
+  const types = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  exporting = true; chunks = []; $('saveVideo').hidden = true;
+  ['export', 'play', 'tStart', 'tEnd', 'file', 'pick', 'addBtn'].forEach(i => $(i).disabled = true); $('stop').disabled = false;
+  v.pause(); v.onseeked = null;
+  exportStart = tS(); exportEnd = tE();      // 書き出しの範囲はトリミングバー(青い範囲)で固定。再生カーソルの位置は使わない
+  for (let i = 0; i < 5 && Math.abs(v.currentTime - exportStart) > 0.05; i++) {
+    await new Promise(r => { const f = () => r(); v.addEventListener('seeked', f, {once: true}); setTimeout(f, 3000); v.currentTime = exportStart; });
+  }
+  v.onseeked = onSeeked;
+  heads = []; dbg = []; lastDet = -1e9;
+  if ($('mosaicOn').checked) await detect();
+  const vs = cv.captureStream(30);
+  v.muted = false; v.volume = 1;
+  try { (v.captureStream || v.mozCaptureStream).call(v).getAudioTracks().forEach(t => vs.addTrack(t)); } catch (e) {}
+  recorder = new MediaRecorder(vs, mime ? {mimeType: mime, videoBitsPerSecond: 8e6} : {videoBitsPerSecond: 8e6});
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+  recorder.onstop = async () => {
+    const type = recorder.mimeType || mime || 'video/mp4';
+    const ext = type.includes('mp4') ? 'mp4' : 'webm';
+    const blob = new Blob(chunks, {type});
+    if (!blob.size) { setStatus('書き出した動画が空でした。もう一度お試しください。'); return; }
+    const size = (blob.size / 1048576).toFixed(1);
+    lastOut = {blob, name: '出力.' + ext, size, ext};
+    $('saveVideo').hidden = false;
+    setStatus(`書き出し完了(${ext}形式、${size}MB)。下の「保存する」を押してください。`);
+  };
+  recorder.start(500);
+  setStatus('書き出し中…');
+  try { await v.play(); }
+  catch (e) {
+    v.muted = true;   // 音声付き再生が拒否された場合は無音で続行
+    try { await v.play(); setStatus('書き出し中…(再生が制限されたため、音声なしで書き出します)'); }
+    catch (e2) { setStatus('再生を開始できませんでした。もう一度「書き出し」を押してください。'); finishExport(); return; }
+  }
+  exportPlaying = true;
+  const t0 = exportStart, len = exportEnd - exportStart;
+  const prog = setInterval(() => { $('prog').style.width = Math.min(100, (v.currentTime - t0) / len * 100) + '%'; if (!exporting) clearInterval(prog); }, 200);
+};
+$('export').onclick = doExport;
+function finishExport() {
+  if (!exporting) return;
+  exporting = false; exportPlaying = false; v.muted = true;
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+  ['export', 'play', 'tStart', 'tEnd', 'file', 'pick', 'addBtn'].forEach(i => $(i).disabled = false); $('stop').disabled = true;
+  $('prog').style.width = '100%';
+}
+$('stop').onclick = () => { v.pause(); finishExport(); };
+$('saveVideo').onclick = async () => {
+  if (!lastOut) return;
+  const res = await saveBlob(lastOut.blob, lastOut.name);
+  setStatus(res === 'saved' ? `保存しました(${lastOut.ext}形式、${lastOut.size}MB)。必ず最初から最後まで見て、隠し漏れがないか確認してください。` : '保存をキャンセルしました。もう一度「保存する」を押せます。');
+};
+updateTrim();
+</script>
+</body></html>
