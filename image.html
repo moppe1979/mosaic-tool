@@ -86,6 +86,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
       <input type="range" id="blk" min="4" max="60" value="40">
       <label>円の大きさ <small id="sizeV"></small></label>
       <input type="range" id="size" min="80" max="220" value="120">
+      <label class="chk"><input type="checkbox" id="fit" checked> モザイクを人物の枠の中に収める</label>
       <label class="chk"><input type="checkbox" id="outline" checked> 円の枠を表示(保存した画像には入りません)</label>
       <label class="chk"><input type="checkbox" id="debug"> 検出枠を表示(緑=人物、橙=ヘルメット色)</label>
     </details>
@@ -211,10 +212,10 @@ async function detect() {
       if (hm) {
         nd.push({type: 'helmet', r: [hm.x, hm.y, hm.w, hm.h]});
         const hw = Math.max(hm.w, hm.h * 0.9);
-        nh.push({cx: hm.x + hm.w / 2, cy: hm.y + hw * 0.7, r: hw * 0.6 * size});
+        nh.push({cx: hm.x + hm.w / 2, cy: hm.y + hw * 0.7, r: hw * 0.6 * size, box: [x, y, w, h]});
       } else if (mode === 'person' || mode === 'both') {
         const hh = Math.max(h * 0.27, w * 0.45);
-        nh.push({cx: x + w / 2, cy: y + hh * 0.45, r: Math.max(hh * 0.65, w * 0.35) * size});
+        nh.push({cx: x + w / 2, cy: y + hh * 0.45, r: Math.max(hh * 0.65, w * 0.35) * size, box: [x, y, w, h]});
       }
     }
     heads = nh; dbg = nd;
@@ -274,6 +275,7 @@ function pixelate(b) {
   tctx.drawImage(base, x, y, w, h, 0, 0, bw, bh);
   ctx.save();
   ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.clip();
+  if ($('fit').checked && b.box) { ctx.beginPath(); ctx.rect(b.box[0], b.box[1], b.box[2], b.box[3]); ctx.clip(); }   // 人物の枠の外へはみ出さない
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(tmp, 0, 0, bw, bh, x, y, w, h);
   ctx.restore();
@@ -297,7 +299,7 @@ function redraw(overlay = true) {
     }
   }
 }
-['blk', 'size', 'mosaicOn', 'outline', 'debug'].forEach(i => $(i).addEventListener('input', () => redraw()));
+['blk', 'size', 'mosaicOn', 'fit', 'outline', 'debug'].forEach(i => $(i).addEventListener('input', () => redraw()));
 $('size').addEventListener('input', () => { /* 円の大きさは検出し直して反映(changeで実行) */ });
 
 // ---------- 保存 ----------
